@@ -5,6 +5,7 @@ Layer order in the PSD is back -> front (See-through sorts by depth).
 """
 import glob
 import os
+import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -23,14 +24,26 @@ class Layer:
 def run_seethrough(image_path, seethrough_dir, out_dir, resolution=1280, quantized=True, extra_args=()):
     """Run See-through and return the path of the layered PSD it produced."""
     script = "inference_psd_quantized.py" if quantized else "inference_psd.py"
-    cmd = [sys.executable, f"inference/scripts/{script}",
-           "--srcp", os.path.abspath(image_path),
+    # NAI file names are full prompts (spaces, commas, dots); give See-through a plain name
+    os.makedirs(out_dir, exist_ok=True)
+    safe = os.path.join(out_dir, "input" + os.path.splitext(image_path)[1].lower())
+    shutil.copyfile(image_path, safe)
+    cmd = [sys.executable, "-u", f"inference/scripts/{script}",
+           "--srcp", safe,
            "--save_dir", os.path.abspath(out_dir),
            "--resolution", str(resolution),
            "--save_to_psd", *extra_args]
-    print("[decompose]", " ".join(cmd))
-    subprocess.run(cmd, cwd=seethrough_dir, check=True)
-    return find_psd(out_dir, image_path)
+    print("[decompose]", " ".join(cmd), flush=True)
+    # stream the child's output into the notebook cell (Colab hides it otherwise)
+    tail = []
+    with subprocess.Popen(cmd, cwd=seethrough_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          text=True, bufsize=1) as p:
+        for line in p.stdout:
+            print(line, end="", flush=True)
+            tail = (tail + [line])[-40:]
+    if p.returncode:
+        raise RuntimeError(f"See-through failed (exit {p.returncode}). Last output:\n" + "".join(tail))
+    return find_psd(out_dir, safe)
 
 
 def find_psd(out_dir, image_path):
