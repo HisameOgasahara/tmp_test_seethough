@@ -13,6 +13,7 @@ def code(s):
 
 cells = [
     md("# NAI → See-through → 업스케일 → SVG → 셀 애니메이션\n"
+       "[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/HisameOgasahara/tmp_test_seethough/blob/main/seethrough_cel.ipynb)\n\n"
        "런타임 > 런타임 유형 변경 > **GPU** 선택 후 위에서부터 차례로 실행하세요.\n\n"
        "결과: 레이어별 SVG, 합친 `character.svg`, 움직이는 `character.html`, 미리보기 PNG를 zip으로 받습니다."),
     code("!nvidia-smi --query-gpu=name,memory.total --format=csv"),
@@ -21,8 +22,9 @@ cells = [
          "import os\n"
          "if not os.path.exists('/content/tmp_test_seethough'):\n"
          "    !git clone --depth 1 {REPO} /content/tmp_test_seethough\n"
-         "else:\n"
-         "    !git -C /content/tmp_test_seethough pull -q\n"
+         "else:  # always match the latest main, even if files were edited in Colab\n"
+         "    !git -C /content/tmp_test_seethough fetch -q --depth 1 origin main && git -C /content/tmp_test_seethough reset -q --hard origin/main\n"
+         "!git -C /content/tmp_test_seethough log -1 --format='code version: %h %cd' --date=local\n"
          "!bash /content/tmp_test_seethough/setup_colab.sh /content"),
     md("## 2. 이미지 올리기\n먼저 **원본 그림**을 올리고, 이어서 나오는 창에는 **눈 감은 버전**(NAI 인페인팅)을 올리세요. 눈 감은 버전이 없으면 두 번째 창은 취소하면 됩니다 (그 경우 깜빡임은 임시로 눈을 납작하게 눌러서 표현)."),
     code("import os\nfrom google.colab import files\n"
@@ -36,8 +38,9 @@ cells = [
     md("## 3. 실행\n- `MODEL`: `4x-UltraSharpV2_Lite` 또는 `2x-AnimeSharpV4_Fast_RCAN_PU`\n"
        "- `FULL_PRECISION=True`는 VRAM 16GB 이상(A100/L4)에서만. T4는 기본값(NF4) 그대로\n"
        "- 이미 See-through PSD가 있으면 `FROM_PSD`에 경로를 넣으면 분리 단계를 건너뜁니다"),
-    code("import sys; sys.path.insert(0, '/content/tmp_test_seethough')\n"
-         "from pipeline import run\n\n"
+    code("import sys, importlib; sys.path.insert(0, '/content/tmp_test_seethough')\n"
+         "import pipeline.vectorize, pipeline.assemble, pipeline.decompose, pipeline.run as run\n"
+         "for m in (pipeline.vectorize, pipeline.assemble, pipeline.decompose, run): importlib.reload(m)  # pick up a fresh pull\n\n"
          "MODEL = '4x-UltraSharpV2_Lite'\n"
          "FULL_PRECISION = False\n"
          "FROM_PSD = None\n"

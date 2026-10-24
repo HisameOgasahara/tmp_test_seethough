@@ -1,5 +1,7 @@
 # tmp_test_seethough
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/HisameOgasahara/tmp_test_seethough/blob/main/seethrough_cel.ipynb)
+
 NAI(또는 아무 플랫 컬러 애니 일러스트) 한 장을 **부위별로 나뉜 벡터 캐릭터**로 만들고, GSAP으로 움직이는 셀 애니메이션 HTML까지 뽑는 Colab 파이프라인.
 
 ```
@@ -10,7 +12,9 @@ NAI(또는 아무 플랫 컬러 애니 일러스트) 한 장을 **부위별로 �
 ```
 
 ## 사용법 (Colab)
-1. `seethrough_cel.ipynb`를 Colab에서 열고 GPU 런타임 선택
+1. 위 **Open In Colab** 배지로 열고 GPU 런타임 선택
+   (배지는 GitHub `main` 브랜치에서 노트북을 바로 불러오고, 설치 셀이 매번 `git pull`로 코드도 최신으로 맞춥니다.
+   Colab에서 "사본 저장"한 노트북은 그 시점에 고정되니 항상 배지로 여세요)
 2. 설치 셀 실행 → **세션 다시 시작** 한 번
 3. 원본 업로드 (선택: 같은 그림의 눈 감은 버전) → 실행 → 미리보기 → zip 다운로드
 
