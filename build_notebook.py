@@ -14,7 +14,7 @@ def code(s):
 cells = [
     md("# NAI → See-through → 업스케일 → SVG → 셀 애니메이션\n"
        "[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/HisameOgasahara/tmp_test_seethough/blob/main/seethrough_cel.ipynb)\n\n"
-       "런타임 > 런타임 유형 변경 > **GPU** 선택 후 위에서부터 차례로 실행하세요.\n\n"
+       "런타임 > 런타임 유형 변경 > **L4** (또는 A100) 선택 후 위에서부터 차례로 실행하세요.\n\n"
        "결과: 레이어별 SVG, 합친 `character.svg`, 움직이는 `character.html`, 미리보기 PNG를 zip으로 받습니다."),
     code("!nvidia-smi --query-gpu=name,memory.total --format=csv"),
     md("## 1. 설치 (처음 한 번)\n설치가 끝나면 **런타임 > 세션 다시 시작**을 한 번 해 주세요 (numpy 등 버전이 바뀌어서 필요합니다)."),
@@ -36,7 +36,7 @@ cells = [
          "    CLOSED = None\n"
          "print('main:', MAIN, '| closed eyes:', CLOSED)"),
     md("## 3. 실행\n- `MODEL`: `4x-UltraSharpV2_Lite` 또는 `2x-AnimeSharpV4_Fast_RCAN_PU`\n"
-       "- `FULL_PRECISION=True`는 VRAM 16GB 이상(A100/L4)에서만. T4는 기본값(NF4) 그대로\n"
+       "- L4/A100은 VRAM이 충분하니 `FULL_PRECISION=True`(원래 정밀도)도 가능. T4/V100은 bf16 미지원으로 실행 불가\n"
        "- 이미 See-through PSD가 있으면 `FROM_PSD`에 경로를 넣으면 분리 단계를 건너뜁니다"),
     code("import sys, importlib; sys.path.insert(0, '/content/tmp_test_seethough')\n"
          "import pipeline.vectorize, pipeline.assemble, pipeline.decompose, pipeline.run as run\n"

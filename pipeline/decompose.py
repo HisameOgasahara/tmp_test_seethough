@@ -49,6 +49,7 @@ def run_seethrough(image_path, seethrough_dir, out_dir, resolution=1280, quantiz
            "TRANSFORMERS_VERBOSITY": "error", "DIFFUSERS_VERBOSITY": "error", "PYTHONWARNINGS": "ignore"}
     kill_stale()
     gpu_report()
+    check_bf16()
     tail, last = [], 0.0
     with open(log_path, "w", encoding="utf-8") as log, \
             subprocess.Popen(cmd, cwd=seethrough_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -113,6 +114,22 @@ def gpu_report():
         print(f"[decompose] GPU: {r}", flush=True)
     except Exception:
         pass
+
+
+def check_bf16():
+    """See-through loads every model in bf16. GPUs before Ampere (T4, V100, P100: compute
+    capability < 8.0) have no native bf16 and fail in cuBLAS (CUBLAS_STATUS_ALLOC_FAILED /
+    NOT_INITIALIZED) after minutes of loading, so stop right away with the reason."""
+    try:
+        r = subprocess.run(["nvidia-smi", "--query-gpu=name,compute_cap", "--format=csv,noheader"],
+                           capture_output=True, text=True, timeout=10).stdout.strip().splitlines()[0]
+        name, cap = [x.strip() for x in r.split(",")]
+    except Exception:
+        return
+    if float(cap) < 8.0:
+        raise RuntimeError(
+            f"{name} (compute capability {cap}) has no native bf16, which See-through requires.\n"
+            "Colab: Runtime > Change runtime type > L4 (or A100), then run the cells again.")
 
 
 PROGRESS_RE = re.compile(r"\d+%\||\d+/\d+ \[\d|it/s|s/it")
