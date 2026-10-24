@@ -3,9 +3,10 @@
 Runs See-through's NF4 (low-VRAM) script as a subprocess, then reads the PSD it writes.
 Layer order in the PSD is back -> front (See-through sorts by depth).
 """
+import codecs
 import glob
-import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -37,33 +38,53 @@ def run_seethrough(image_path, seethrough_dir, out_dir, resolution=1280, quantiz
            "--save_dir", os.path.abspath(out_dir),
            "--resolution", str(resolution),
            "--save_to_psd", *extra_args]
+    log_path = os.path.join(out_dir, "seethrough.log")
     print("[decompose]", " ".join(cmd), flush=True)
-    # stream the child's output into the notebook cell (Colab hides it otherwise)
-    # progress bars redraw one line with '\r' hundreds of times a second; printing every
-    # redraw floods the cell, so '\r' updates are shown at most once every PROGRESS_EVERY s.
-    tail, last, buf = [], 0.0, ""
-    with subprocess.Popen(cmd, cwd=seethrough_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as p:
-        out = io.TextIOWrapper(p.stdout, encoding="utf-8", errors="replace", newline="")  # keep '\r'
-        while True:
-            ch = out.read(1)
-            if not ch:
-                break
-            if ch not in "\r\n":
-                buf += ch
+    print(f"[decompose] full log: {log_path}", flush=True)
+    # Every line printed in a notebook is sent to and drawn by the browser, so a progress bar
+    # updating hundreds of times a second freezes the tab. Turn the bars off at the source,
+    # and drop any progress-looking line that still leaks (one snapshot per PROGRESS_EVERY s).
+    env = {**os.environ, "TQDM_DISABLE": "1", "HF_HUB_DISABLE_PROGRESS_BARS": "1",
+           "TRANSFORMERS_VERBOSITY": "error", "DIFFUSERS_VERBOSITY": "error", "PYTHONWARNINGS": "ignore"}
+    tail, last = [], 0.0
+    with open(log_path, "w", encoding="utf-8") as log, \
+            subprocess.Popen(cmd, cwd=seethrough_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                             env=env) as p:
+        for raw in _split_lines(p.stdout.fileno()):
+            line = raw.rstrip()
+            if not line:
                 continue
-            if ch == "\n":
-                print(buf, flush=True)
-                tail = (tail + [buf + "\n"])[-40:]
-            elif time.time() - last > PROGRESS_EVERY and buf.strip():
-                print(buf, flush=True)
+            log.write(line + "\n")
+            if PROGRESS_RE.search(line):
+                if time.time() - last < PROGRESS_EVERY:
+                    continue
                 last = time.time()
-            buf = ""
-        if buf:
-            print(buf, flush=True)
-            tail.append(buf)
+            print(line, flush=True)
+            tail = (tail + [line])[-40:]
     if p.returncode:
-        raise RuntimeError(f"See-through failed (exit {p.returncode}). Last output:\n" + "".join(tail))
+        raise RuntimeError(f"See-through failed (exit {p.returncode}). Last output:\n" + "\n".join(tail) +
+                           f"\n(full log: {log_path})")
     return find_psd(out_dir, safe)
+
+
+PROGRESS_RE = re.compile(r"\d+%\||\d+/\d+ \[\d|it/s|s/it")
+
+
+def _split_lines(fd):
+    """Yield pieces separated by either '\\n' or '\\r' (progress bars redraw with '\\r').
+    Reads the raw pipe so output arrives as soon as it is written."""
+    dec = codecs.getincrementaldecoder("utf-8")("replace")
+    buf = ""
+    while True:
+        data = os.read(fd, 65536)
+        if not data:
+            break
+        buf += dec.decode(data)
+        parts = re.split(r"[\r\n]", buf)
+        buf = parts.pop()
+        yield from parts
+    if buf:
+        yield buf
 
 
 def find_psd(out_dir, image_path):
