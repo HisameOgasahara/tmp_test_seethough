@@ -17,7 +17,7 @@ cells = [
        "런타임 > 런타임 유형 변경 > **T4 GPU** 선택 후 위에서부터 차례로 실행하세요.\n\n"
        "결과: 레이어별 SVG, 합친 `character.svg`, 움직이는 `character.html`, 미리보기 PNG를 zip으로 받습니다."),
     code("!nvidia-smi --query-gpu=name,memory.total --format=csv"),
-    md("## 1. 설치\n끝나면 **세션이 자동으로 다시 시작**됩니다 (Pillow/numpy 버전이 바뀌어서 필요). \"세션이 다운됨\" 알림은 정상이니 다음 셀로 넘어가세요."),
+    md("## 1. 설치\n**처음 설치할 때만** 끝나고 세션이 한 번 자동 재시작됩니다 (Pillow/numpy 버전이 바뀌어서 필요). 그때 뜨는 \"세션이 다운됨\" 알림은 정상이니 다음 셀로 넘어가세요. 이미 설치된 세션에서 다시 돌리면 코드만 최신으로 맞추고 재시작하지 않습니다."),
     code("REPO = 'https://github.com/HisameOgasahara/tmp_test_seethough'\n"
          "import os\n"
          "if not os.path.exists('/content/tmp_test_seethough'):\n"
@@ -25,9 +25,19 @@ cells = [
          "else:  # always match the latest main, even if files were edited in Colab\n"
          "    !git -C /content/tmp_test_seethough fetch -q --depth 1 origin main && git -C /content/tmp_test_seethough reset -q --hard origin/main\n"
          "!git -C /content/tmp_test_seethough log -1 --format='code version: %h %cd' --date=local\n"
-         "!bash /content/tmp_test_seethough/setup_colab.sh /content\n"
-         "# the kernel still holds the old Pillow/numpy in memory; restart so every import comes from disk\n"
-         "import os; os.kill(os.getpid(), 9)"),
+         "import hashlib\n"
+         "SETUP = '/content/tmp_test_seethough/setup_colab.sh'\n"
+         "MARK = '/content/.seethrough_setup_' + hashlib.sha256(open(SETUP, 'rb').read()).hexdigest()[:12]\n"
+         "if os.path.exists(MARK):\n"
+         "    print('already installed in this session - skipping install, no restart')\n"
+         "else:\n"
+         "    !bash {SETUP} /content && touch {MARK}\n"
+         "    if os.path.exists(MARK):\n"
+         "        # the kernel still holds the old Pillow/numpy in memory; restart once so imports come from disk\n"
+         "        print('installed - restarting the session once (expected), then continue with the next cell')\n"
+         "        os.kill(os.getpid(), 9)\n"
+         "    else:\n"
+         "        print('install FAILED - see the output above')"),
     md("## 2. 이미지 올리기\n먼저 **원본 그림**을 올리고, 이어서 나오는 창에는 **눈 감은 버전**(NAI 인페인팅)을 올리세요. 눈 감은 버전이 없으면 두 번째 창은 취소하면 됩니다 (그 경우 깜빡임은 임시로 눈을 납작하게 눌러서 표현)."),
     code("import os\nfrom google.colab import files\n"
          "os.chdir('/content')  # files.upload() saves into the current folder\n"
