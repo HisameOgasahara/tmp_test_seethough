@@ -36,7 +36,8 @@ def run_seethrough(image_path, seethrough_dir, out_dir, resolution=1280, quantiz
     os.makedirs(out_dir, exist_ok=True)
     safe = os.path.join(out_dir, "input" + os.path.splitext(image_path)[1].lower())
     shutil.copyfile(image_path, safe)
-    shim = [] if has_bf16() else ["-m", "pipeline.t4_shim"]
+    # T4 wrapper is opt-in now: it did not fix the cuBLAS failure, so the default run is plain See-through
+    shim = ["-m", "pipeline.t4_shim"] if os.environ.get("SEETHROUGH_T4_SHIM") == "1" and not has_bf16() else []
     cmd = [sys.executable, "-u", *shim, f"inference/scripts/{script}",
            "--srcp", safe,
            "--save_dir", os.path.abspath(out_dir),
@@ -53,10 +54,10 @@ def run_seethrough(image_path, seethrough_dir, out_dir, resolution=1280, quantiz
     # Every line printed in a notebook is sent to and drawn by the browser, so a progress bar
     # updating hundreds of times a second freezes the tab. Turn the bars off at the source,
     # and drop any progress-looking line that still leaks (one snapshot per PROGRESS_EVERY s).
-    env = {**os.environ,
-           "PYTHONPATH": os.pathsep.join([REPO_ROOT, os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep),
-           "TQDM_DISABLE": "1", "HF_HUB_DISABLE_PROGRESS_BARS": "1",
-           "TRANSFORMERS_VERBOSITY": "error", "DIFFUSERS_VERBOSITY": "error", "PYTHONWARNINGS": "ignore"}
+    # same environment as the run that loaded fine; flooding is handled by the line filter below
+    env = dict(os.environ)
+    if shim:
+        env["PYTHONPATH"] = os.pathsep.join([REPO_ROOT, env.get("PYTHONPATH", "")]).rstrip(os.pathsep)
     kill_stale()
     gpu_report()
     cuda_selftest(env)
@@ -65,7 +66,7 @@ def run_seethrough(image_path, seethrough_dir, out_dir, resolution=1280, quantiz
     tail, last = [], 0.0
     with open(log_path, "w", encoding="utf-8") as log, \
             subprocess.Popen(cmd, cwd=seethrough_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             env=env, start_new_session=True) as p:
+                             env=env) as p:
       try:
         for raw in _split_lines(p.stdout.fileno()):
             line = raw.rstrip()
@@ -89,8 +90,8 @@ def run_seethrough(image_path, seethrough_dir, out_dir, resolution=1280, quantiz
 
 def _kill_group(p):
     try:
-        os.killpg(p.pid, signal.SIGKILL)
-    except (ProcessLookupError, PermissionError):
+        p.kill()
+    except ProcessLookupError:
         pass
     p.wait()
     print("[decompose] stopped See-through process", flush=True)
