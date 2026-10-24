@@ -4,14 +4,18 @@ Runs See-through's NF4 (low-VRAM) script as a subprocess, then reads the PSD it 
 Layer order in the PSD is back -> front (See-through sorts by depth).
 """
 import glob
+import io
 import os
 import shutil
 import subprocess
 import sys
+import time
 from dataclasses import dataclass
 
 import numpy as np
 from PIL import Image
+
+PROGRESS_EVERY = 5  # seconds between progress-bar snapshots
 
 
 @dataclass
@@ -35,12 +39,28 @@ def run_seethrough(image_path, seethrough_dir, out_dir, resolution=1280, quantiz
            "--save_to_psd", *extra_args]
     print("[decompose]", " ".join(cmd), flush=True)
     # stream the child's output into the notebook cell (Colab hides it otherwise)
-    tail = []
-    with subprocess.Popen(cmd, cwd=seethrough_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                          text=True, bufsize=1) as p:
-        for line in p.stdout:
-            print(line, end="", flush=True)
-            tail = (tail + [line])[-40:]
+    # progress bars redraw one line with '\r' hundreds of times a second; printing every
+    # redraw floods the cell, so '\r' updates are shown at most once every PROGRESS_EVERY s.
+    tail, last, buf = [], 0.0, ""
+    with subprocess.Popen(cmd, cwd=seethrough_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as p:
+        out = io.TextIOWrapper(p.stdout, encoding="utf-8", errors="replace", newline="")  # keep '\r'
+        while True:
+            ch = out.read(1)
+            if not ch:
+                break
+            if ch not in "\r\n":
+                buf += ch
+                continue
+            if ch == "\n":
+                print(buf, flush=True)
+                tail = (tail + [buf + "\n"])[-40:]
+            elif time.time() - last > PROGRESS_EVERY and buf.strip():
+                print(buf, flush=True)
+                last = time.time()
+            buf = ""
+        if buf:
+            print(buf, flush=True)
+            tail.append(buf)
     if p.returncode:
         raise RuntimeError(f"See-through failed (exit {p.returncode}). Last output:\n" + "".join(tail))
     return find_psd(out_dir, safe)
