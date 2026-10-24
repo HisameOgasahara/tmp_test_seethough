@@ -12,8 +12,8 @@ NAI(또는 아무 플랫 컬러 애니 일러스트) 한 장을 **부위별로 �
 ```
 
 ## 사용법 (Colab)
-1. 위 **Open In Colab** 배지로 열고 런타임 유형을 **L4 또는 A100**으로 선택
-   (See-through가 bf16 전용이라 T4/V100은 cuBLAS 에러로 실패합니다. T4면 실행 직후 바로 멈추고 안내합니다)
+1. 위 **Open In Colab** 배지로 열고 GPU 런타임 선택 (무료 **T4** 기준)
+   (See-through는 bf16 전용이라 T4/V100에서는 `pipeline/t4_shim.py`가 자동으로 끼어들어 fp16 autocast + fp32 VAE로 돌립니다)
    (배지는 GitHub `main` 브랜치에서 노트북을 바로 불러오고, 설치 셀이 매번 `git pull`로 코드도 최신으로 맞춥니다.
    Colab에서 "사본 저장"한 노트북은 그 시점에 고정되니 항상 배지로 여세요)
 2. 설치 셀 실행 → **세션 다시 시작** 한 번
@@ -26,6 +26,7 @@ NAI(또는 아무 플랫 컬러 애니 일러스트) 한 장을 **부위별로 �
 | `pipeline/upscale.py` | tmp_upscaler `server_core`로 RGBA 업스케일 (알파 블리드 + 알파 별도 업스케일) |
 | `pipeline/vectorize.py` | 투명도 인식 SVG 변환 |
 | `pipeline/assemble.py` | 레이어 역할 분류, SVG 조립, GSAP HTML 템플릿 |
+| `pipeline/t4_shim.py` | bf16 없는 GPU(T4)용 실행 래퍼: 행렬곱은 fp16 autocast, VAE는 fp32 |
 | `pipeline/run.py` | 전체 실행 CLI (`python -m pipeline.run IMAGE ...`) |
 | `setup_colab.sh` | See-through / tmp_upscaler 클론 + 필요한 패키지만 설치 |
 | `build_notebook.py` | 노트북 생성기 (노트북은 손으로 고치지 말고 이걸 고친 뒤 재생성) |
@@ -43,4 +44,4 @@ NAI(또는 아무 플랫 컬러 애니 일러스트) 한 장을 **부위별로 �
 
 ## 테스트 상태
 - 검증됨: PSD 읽기 → SVG 변환 → 조립 → HTML 애니메이션 (가짜 PSD로 헤드리스 브라우저에서 확인, JS 오류 없음)
-- 미검증: Colab에서 See-through 설치/실행, GPU 업스케일 (GPU 없는 환경에서 작성)
+- 미검증: T4에서 `t4_shim` 실제 실행, GPU 업스케일 (GPU 없는 환경에서 작성)

@@ -17,6 +17,7 @@ from dataclasses import dataclass
 import numpy as np
 from PIL import Image
 
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROGRESS_EVERY = 5  # seconds between progress-bar snapshots
 
 
@@ -34,7 +35,8 @@ def run_seethrough(image_path, seethrough_dir, out_dir, resolution=1280, quantiz
     os.makedirs(out_dir, exist_ok=True)
     safe = os.path.join(out_dir, "input" + os.path.splitext(image_path)[1].lower())
     shutil.copyfile(image_path, safe)
-    cmd = [sys.executable, "-u", f"inference/scripts/{script}",
+    shim = [] if has_bf16() else ["-m", "pipeline.t4_shim"]
+    cmd = [sys.executable, "-u", *shim, f"inference/scripts/{script}",
            "--srcp", safe,
            "--save_dir", os.path.abspath(out_dir),
            "--resolution", str(resolution),
@@ -45,11 +47,13 @@ def run_seethrough(image_path, seethrough_dir, out_dir, resolution=1280, quantiz
     # Every line printed in a notebook is sent to and drawn by the browser, so a progress bar
     # updating hundreds of times a second freezes the tab. Turn the bars off at the source,
     # and drop any progress-looking line that still leaks (one snapshot per PROGRESS_EVERY s).
-    env = {**os.environ, "TQDM_DISABLE": "1", "HF_HUB_DISABLE_PROGRESS_BARS": "1",
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join(
+               [REPO_ROOT, os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep), "TQDM_DISABLE": "1", "HF_HUB_DISABLE_PROGRESS_BARS": "1",
            "TRANSFORMERS_VERBOSITY": "error", "DIFFUSERS_VERBOSITY": "error", "PYTHONWARNINGS": "ignore"}
     kill_stale()
     gpu_report()
-    check_bf16()
+    if shim:
+        print("[decompose] GPU has no native bf16 -> running See-through through pipeline.t4_shim (fp16)", flush=True)
     tail, last = [], 0.0
     with open(log_path, "w", encoding="utf-8") as log, \
             subprocess.Popen(cmd, cwd=seethrough_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
@@ -116,20 +120,14 @@ def gpu_report():
         pass
 
 
-def check_bf16():
-    """See-through loads every model in bf16. GPUs before Ampere (T4, V100, P100: compute
-    capability < 8.0) have no native bf16 and fail in cuBLAS (CUBLAS_STATUS_ALLOC_FAILED /
-    NOT_INITIALIZED) after minutes of loading, so stop right away with the reason."""
+def has_bf16():
+    """True on Ampere or newer (compute capability >= 8.0). T4/V100 have no bf16 GEMM."""
     try:
-        r = subprocess.run(["nvidia-smi", "--query-gpu=name,compute_cap", "--format=csv,noheader"],
+        r = subprocess.run(["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"],
                            capture_output=True, text=True, timeout=10).stdout.strip().splitlines()[0]
-        name, cap = [x.strip() for x in r.split(",")]
+        return float(r) >= 8.0
     except Exception:
-        return
-    if float(cap) < 8.0:
-        raise RuntimeError(
-            f"{name} (compute capability {cap}) has no native bf16, which See-through requires.\n"
-            "Colab: Runtime > Change runtime type > L4 (or A100), then run the cells again.")
+        return True
 
 
 PROGRESS_RE = re.compile(r"\d+%\||\d+/\d+ \[\d|it/s|s/it")
