@@ -13,10 +13,10 @@ NAI(또는 아무 플랫 컬러 애니 일러스트) 한 장을 **부위별로 �
 
 ## 사용법 (Colab)
 1. 위 **Open In Colab** 배지로 열고 GPU 런타임 선택 (무료 **T4** 기준)
-   (See-through는 bf16 전용이라 T4/V100에서는 `pipeline/t4_shim.py`가 자동으로 끼어들어 fp16 autocast + fp32 VAE로 돌립니다)
+   (T4 실측: See-through 약 25분, 최대 VRAM 8.8GB. group offload는 bitsandbytes 4bit와 충돌해서 끕니다)
    (배지는 GitHub `main` 브랜치에서 노트북을 바로 불러오고, 설치 셀이 매번 `git pull`로 코드도 최신으로 맞춥니다.
    Colab에서 "사본 저장"한 노트북은 그 시점에 고정되니 항상 배지로 여세요)
-2. 설치 셀 실행 → **세션 다시 시작** 한 번
+2. 설치 셀 실행 (끝나면 세션이 자동 재시작됨)
 3. 원본 업로드 (선택: 같은 그림의 눈 감은 버전) → 실행 → 미리보기 → zip 다운로드
 
 ## 구성
@@ -26,12 +26,13 @@ NAI(또는 아무 플랫 컬러 애니 일러스트) 한 장을 **부위별로 �
 | `pipeline/upscale.py` | tmp_upscaler `server_core`로 RGBA 업스케일 (알파 블리드 + 알파 별도 업스케일) |
 | `pipeline/vectorize.py` | 투명도 인식 SVG 변환 |
 | `pipeline/assemble.py` | 레이어 역할 분류, SVG 조립, GSAP HTML 템플릿 |
-| `pipeline/t4_shim.py` | bf16 없는 GPU(T4)용 실행 래퍼: 행렬곱은 fp16 autocast, VAE는 fp32 |
+| `pipeline/t4_shim.py` | (실험용, 기본 꺼짐 `SEETHROUGH_T4_SHIM=1`) fp16 autocast 래퍼 |
 | `pipeline/run.py` | 전체 실행 CLI (`python -m pipeline.run IMAGE ...`) |
 | `setup_colab.sh` | See-through / tmp_upscaler 클론 + 필요한 패키지만 설치 |
 | `build_notebook.py` | 노트북 생성기 (노트북은 손으로 고치지 말고 이걸 고친 뒤 재생성) |
 
 ## 옵션
+- 같은 그림을 다시 돌리면 See-through 결과(PSD)를 자동 재사용 (`--redo`로 강제 재실행)
 - `--from-psd X.psd`: See-through 건너뛰고 기존 PSD 사용
 - `--no-upscale`: 업스케일 생략 (빠른 테스트)
 - `--model`, `--tile`: 업스케일 모델 / 타일 크기 (VRAM 부족 시 256)
@@ -44,4 +45,5 @@ NAI(또는 아무 플랫 컬러 애니 일러스트) 한 장을 **부위별로 �
 
 ## 테스트 상태
 - 검증됨: PSD 읽기 → SVG 변환 → 조립 → HTML 애니메이션 (가짜 PSD로 헤드리스 브라우저에서 확인, JS 오류 없음)
-- 미검증: T4에서 `t4_shim` 실제 실행, GPU 업스케일 (GPU 없는 환경에서 작성)
+- 검증됨(T4): See-through NF4 분리 → PSD 저장
+- 미검증: GPU 업스케일 이후 단계의 실제 결과

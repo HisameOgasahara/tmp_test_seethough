@@ -44,12 +44,35 @@ def process(layers, args, prefix, extra_class="", only_roles=None):
     return groups, stats
 
 
+def _sha(path):
+    import hashlib
+    return hashlib.sha256(open(path, "rb").read()).hexdigest()
+
+
+def _same_input(path, st_dir, stamp):
+    if not any(p.endswith(".psd") and not p.endswith("_depth.psd") for p in os.listdir(st_dir)
+               ) if os.path.isdir(st_dir) else True:
+        return False
+    if os.path.exists(stamp):
+        return open(stamp).read().strip() == _sha(path)
+    copy = os.path.join(st_dir, "input" + os.path.splitext(path)[1].lower())  # runs made before stamps existed
+    return os.path.exists(copy) and _sha(copy) == _sha(path)
+
+
 def decompose_image(path, args, tag):
+    """See-through takes ~25 min on a T4, so its PSD is reused when the same image was already split."""
+    st_dir = os.path.join(args.out, "seethrough", tag)
+    stamp = os.path.join(st_dir, "input.sha256")
     if args.from_psd and tag == "main":
         psd = args.from_psd
+    elif not args.redo and _same_input(path, st_dir, stamp):
+        psd = decompose.find_psd(st_dir, "input")
+        print(f"[decompose] reusing earlier See-through result: {psd}  (--redo to run again)")
     else:
-        psd = decompose.run_seethrough(path, args.seethrough, os.path.join(args.out, "seethrough", tag),
+        psd = decompose.run_seethrough(path, args.seethrough, st_dir,
                                        resolution=args.resolution, quantized=not args.full_precision)
+        with open(stamp, "w") as f:
+            f.write(_sha(path))
     layers, size = decompose.load_psd_layers(psd)
     decompose.save_layers(layers, os.path.join(args.out, "layers_png", tag))
     return layers
@@ -63,6 +86,7 @@ def main(argv=None):
     ap.add_argument("--upscaler", default="/content/tmp_upscaler")
     ap.add_argument("--out", default="out")
     ap.add_argument("--from-psd")
+    ap.add_argument("--redo", action="store_true", help="run See-through again even if a result exists")
     ap.add_argument("--resolution", type=int, default=1280)
     ap.add_argument("--full-precision", action="store_true", help="bf16 pipeline (needs ~16GB VRAM)")
     ap.add_argument("--no-upscale", action="store_true")

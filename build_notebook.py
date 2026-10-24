@@ -17,7 +17,7 @@ cells = [
        "런타임 > 런타임 유형 변경 > **T4 GPU** 선택 후 위에서부터 차례로 실행하세요.\n\n"
        "결과: 레이어별 SVG, 합친 `character.svg`, 움직이는 `character.html`, 미리보기 PNG를 zip으로 받습니다."),
     code("!nvidia-smi --query-gpu=name,memory.total --format=csv"),
-    md("## 1. 설치 (처음 한 번)\n설치가 끝나면 **런타임 > 세션 다시 시작**을 한 번 해 주세요 (numpy 등 버전이 바뀌어서 필요합니다)."),
+    md("## 1. 설치\n끝나면 **세션이 자동으로 다시 시작**됩니다 (Pillow/numpy 버전이 바뀌어서 필요). \"세션이 다운됨\" 알림은 정상이니 다음 셀로 넘어가세요."),
     code("REPO = 'https://github.com/HisameOgasahara/tmp_test_seethough'\n"
          "import os\n"
          "if not os.path.exists('/content/tmp_test_seethough'):\n"
@@ -25,7 +25,9 @@ cells = [
          "else:  # always match the latest main, even if files were edited in Colab\n"
          "    !git -C /content/tmp_test_seethough fetch -q --depth 1 origin main && git -C /content/tmp_test_seethough reset -q --hard origin/main\n"
          "!git -C /content/tmp_test_seethough log -1 --format='code version: %h %cd' --date=local\n"
-         "!bash /content/tmp_test_seethough/setup_colab.sh /content"),
+         "!bash /content/tmp_test_seethough/setup_colab.sh /content\n"
+         "# the kernel still holds the old Pillow/numpy in memory; restart so every import comes from disk\n"
+         "import os; os.kill(os.getpid(), 9)"),
     md("## 2. 이미지 올리기\n먼저 **원본 그림**을 올리고, 이어서 나오는 창에는 **눈 감은 버전**(NAI 인페인팅)을 올리세요. 눈 감은 버전이 없으면 두 번째 창은 취소하면 됩니다 (그 경우 깜빡임은 임시로 눈을 납작하게 눌러서 표현)."),
     code("import os\nfrom google.colab import files\n"
          "os.chdir('/content')  # files.upload() saves into the current folder\n"
