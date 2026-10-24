@@ -28,7 +28,8 @@ class Layer:
     index: int         # draw order, 0 = backmost
 
 
-def run_seethrough(image_path, seethrough_dir, out_dir, resolution=1280, quantized=True, extra_args=()):
+def run_seethrough(image_path, seethrough_dir, out_dir, resolution=1280, quantized=True, extra_args=(),
+                   group_offload=False):
     """Run See-through and return the path of the layered PSD it produced."""
     script = "inference_psd_quantized.py" if quantized else "inference_psd.py"
     # NAI file names are full prompts (spaces, commas, dots); give See-through a plain name
@@ -41,17 +42,24 @@ def run_seethrough(image_path, seethrough_dir, out_dir, resolution=1280, quantiz
            "--save_dir", os.path.abspath(out_dir),
            "--resolution", str(resolution),
            "--save_to_psd", *extra_args]
+    if quantized and not group_offload:
+        # the NF4 script turns group offload on by default; it shuttles the bitsandbytes 4-bit
+        # text encoder between CPU and GPU, which bnb does not support, and that is exactly where
+        # it failed (diffusers hooks -> bnb matmul_4bit -> cublasCreate). NF4 fits a T4 without it.
+        cmd.append("--no_group_offload")
     log_path = os.path.join(out_dir, "seethrough.log")
     print("[decompose]", " ".join(cmd), flush=True)
     print(f"[decompose] full log: {log_path}", flush=True)
     # Every line printed in a notebook is sent to and drawn by the browser, so a progress bar
     # updating hundreds of times a second freezes the tab. Turn the bars off at the source,
     # and drop any progress-looking line that still leaks (one snapshot per PROGRESS_EVERY s).
-    env = {**os.environ, "PYTHONPATH": os.pathsep.join(
-               [REPO_ROOT, os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep), "TQDM_DISABLE": "1", "HF_HUB_DISABLE_PROGRESS_BARS": "1",
+    env = {**os.environ,
+           "PYTHONPATH": os.pathsep.join([REPO_ROOT, os.environ.get("PYTHONPATH", "")]).rstrip(os.pathsep),
+           "TQDM_DISABLE": "1", "HF_HUB_DISABLE_PROGRESS_BARS": "1",
            "TRANSFORMERS_VERBOSITY": "error", "DIFFUSERS_VERBOSITY": "error", "PYTHONWARNINGS": "ignore"}
     kill_stale()
     gpu_report()
+    cuda_selftest(env)
     if shim:
         print("[decompose] GPU has no native bf16 -> running See-through through pipeline.t4_shim (fp16)", flush=True)
     tail, last = [], 0.0
@@ -118,6 +126,22 @@ def gpu_report():
         print(f"[decompose] GPU: {r}", flush=True)
     except Exception:
         pass
+
+
+def cuda_selftest(env):
+    """Tiny cuBLAS + bitsandbytes NF4 check in a fresh process with the same environment, so a
+    broken install is reported in seconds instead of after model loading."""
+    code = (
+        "import torch, bitsandbytes as bnb\n"
+        "print('torch', torch.__version__, 'cuda', torch.version.cuda, 'bnb', bnb.__version__)\n"
+        "a = torch.randn(64, 64, device='cuda', dtype=torch.float16); (a @ a).sum().item(); print('cublas fp16 ok')\n"
+        "l = bnb.nn.Linear4bit(64, 64, compute_dtype=torch.float16, quant_type='nf4').cuda()\n"
+        "l(torch.randn(2, 64, device='cuda', dtype=torch.float16)).sum().item(); print('bnb nf4 ok')\n")
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env, timeout=300)
+    print("\n".join("[selftest] " + l for l in (r.stdout + r.stderr).strip().splitlines()[-6:]), flush=True)
+    if r.returncode:
+        raise RuntimeError("CUDA self-test failed before See-through even started: the torch / CUDA / "
+                           "bitsandbytes install is broken (not a See-through problem). Output above.")
 
 
 def has_bf16():
