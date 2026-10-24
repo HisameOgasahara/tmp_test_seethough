@@ -8,6 +8,7 @@ import glob
 import os
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import time
@@ -46,10 +47,13 @@ def run_seethrough(image_path, seethrough_dir, out_dir, resolution=1280, quantiz
     # and drop any progress-looking line that still leaks (one snapshot per PROGRESS_EVERY s).
     env = {**os.environ, "TQDM_DISABLE": "1", "HF_HUB_DISABLE_PROGRESS_BARS": "1",
            "TRANSFORMERS_VERBOSITY": "error", "DIFFUSERS_VERBOSITY": "error", "PYTHONWARNINGS": "ignore"}
+    kill_stale()
+    gpu_report()
     tail, last = [], 0.0
     with open(log_path, "w", encoding="utf-8") as log, \
             subprocess.Popen(cmd, cwd=seethrough_dir, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                             env=env) as p:
+                             env=env, start_new_session=True) as p:
+      try:
         for raw in _split_lines(p.stdout.fileno()):
             line = raw.rstrip()
             if not line:
@@ -61,10 +65,54 @@ def run_seethrough(image_path, seethrough_dir, out_dir, resolution=1280, quantiz
                 last = time.time()
             print(line, flush=True)
             tail = (tail + [line])[-40:]
+      except BaseException:  # cell stopped / error: don't leave See-through holding the GPU
+        _kill_group(p)
+        raise
     if p.returncode:
         raise RuntimeError(f"See-through failed (exit {p.returncode}). Last output:\n" + "\n".join(tail) +
                            f"\n(full log: {log_path})")
     return find_psd(out_dir, safe)
+
+
+def _kill_group(p):
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    p.wait()
+    print("[decompose] stopped See-through process", flush=True)
+
+
+def kill_stale():
+    """Kill See-through runs left over from an earlier, interrupted cell (they keep the VRAM)."""
+    found = []
+    for d in os.listdir("/proc"):
+        if not d.isdigit() or int(d) == os.getpid():
+            continue
+        try:
+            argv = open(f"/proc/{d}/cmdline", "rb").read().split(b"\0")
+        except OSError:
+            continue
+        # a real See-through run: python executable + the script as its own argument
+        if argv and b"python" in os.path.basename(argv[0]) and \
+                any(a.endswith((b"inference_psd_quantized.py", b"inference_psd.py")) for a in argv[1:]):
+            try:
+                os.kill(int(d), signal.SIGKILL)
+                found.append(d)
+                print(f"[decompose] killed leftover See-through process {d}", flush=True)
+            except ProcessLookupError:
+                pass
+    if found:
+        time.sleep(3)  # let the driver release the memory
+
+
+def gpu_report():
+    try:
+        r = subprocess.run(["nvidia-smi", "--query-gpu=name,memory.used,memory.total", "--format=csv,noheader"],
+                           capture_output=True, text=True, timeout=10).stdout.strip()
+        print(f"[decompose] GPU: {r}", flush=True)
+    except Exception:
+        pass
 
 
 PROGRESS_RE = re.compile(r"\d+%\||\d+/\d+ \[\d|it/s|s/it")
